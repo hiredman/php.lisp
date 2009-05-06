@@ -1,311 +1,377 @@
 <?php
-
-function array_push_assoc($array, $key, $value){
- $array[$key] = $value;
-  return $array;
-  }
-
-class Node {
-  private $value = null;
-  private $next = null;
-  function __construct($v, &$ptr=null){
-    $this->value = $v;
-    $this->next = $ptr;}
-  function __toString() {
-    return "".$this->value;}
-  function &car () {
-    return $this->value;}
-  function &cdr () {
-    return $this->next;}}
-
-class LList {
-  private $list = null;
-  private $len = null;
-  function __construct (&$x=null) {
-    if ($x != null) {
-      $this->list = $x;}
-    else {
-      $this->list = null;}}
-  function cons ($item){
-    return new LList(new Node($item, $this->list));}
-  function first () {
-    if ($this->list == null)
-      return null;
-    else 
-      return $this->list->car();}
-  function rest () {
-    if ($this->list == null)
-      return $this;
-    else
-      return new LList($this->list->cdr());}
-  function Pempty () {
-    if ($this->list == null)
-      return true;
-    else
-      return false;}
-  function toArray () {
-    $a=array();
-    for($n=$this;!$n->Pempty();$n=$n->rest())
-      array_push($a,$n->first());
-    return $a;}
-  function length () {
-    if ($this->len == null){
-      $i=0;
-      if($this->list != null)
-        for($i++,$n=$this->list;$n->cdr() != null; $n=$n->cdr()) { $i++;}
-      $this->len=$i;}
-    return $this->len;}
-  function reverse () {
-    $l=new LList();
-    for($n=$this;!$n->Pempty();$n=$n->rest()) {
-      $l=$l->cons($n->first());}
-    return $l;}
-  function __toString () {
-    $s="";
-    for($n=$this;!$n->Pempty();$n=$n->rest()) {
-      $s=$s." ".$n->first();}
-    return "(".trim($s).")";}
-  public static function llist () {
-    $x=func_get_args();
-    $x=array_reverse($x);
-    $y=new LList();
-    foreach($x as $i)
-      $y=$y->cons($i);
-    return $y;}
-  function type () {return "list";}}
-
 class Symbol {
-  private $string=null;
-  function __construct ($string) {
-    $this->string=$string;}
-  function get () {
-    return "$".$this->string;}
-  function __toString() {
-    return "".$this->string;}
-  function type () {return "symbol";}}
-
-class AArray {
-  private $arr=null;
-  function __construct ($arr) {
-    $this->arr=$arr;}
-  function get () {
-    return $this->arr;}
-  function __toString () {
-    $buf="";
-    for($i=0;$i<sizeof($this->arr);$i++) {
-      $buf.=" ".$this->arr[$i];}
-    return "[".trim($buf)."]";}}
-
-class Keyword {
-  private $name=null;
-  function __construct ($name) {
-    $this->name = $name;}
-  function __toString () {
-    return ":".$this->name;}
-  function type () {return "keyword";}}
-
-class ImutableMap {
-  private $keys = array();
-  private $values = array();
-  function __construct ($keys=null, $values=null) {
-    if ($keys != null and $values != null) {
-      $this->keys=$keys;
-      $this->values=$values;}}
-  function assoc ($key, $value) {
-      $k = $this->keys;
-      $v = $this->values;
-      array_push($k, $key);
-      array_push($v, $value);
-      return new ImutableMap($k, $v);}
-  function __toString () {
-    $buf="";
-    for($i=0;$i<sizeof($this->keys);$i++) {
-      $buf.=" ".$this->keys[$i]." ".$this->values[$i].",";}
-    $buf=substr($buf,0,strlen($buf)-1);
-    return "{".trim($buf)."}";}
-  function get ($key) {
-    $x = array_search($key, $this->keys);
-    if ($x === false)
-      return null;
-    else
-      return $this->values[$x];}}
-
-class RT {
-
-  const special_chars = "\"(){}[]";
-  public static $root = null;
-  public static $bindings = null;
-
-  public static function tokenizer ($string) {
-    $tokens=new LList();
-    while(strlen($string) > 0){
-      $tokens=$tokens->cons($string[0]);
-      $string=substr($string,1,strlen($string));}
-    return $tokens->reverse();}
-
-  public static function coaless ($list) {
-    $result = new LList ();
-    while (!$list->Pempty()) {
-      if (is_numeric($list->first())) {
-        $buf="";
-        while (!$list->Pempty() && is_numeric($list->first())) {
-          $buf.=$list->first();
-          $list=$list->rest();}
-        $result=$result->cons(intval($buf));}
-      elseif ($list->first() != " " && (strstr(self::special_chars, $list->first()) === false)) {
-        $buf="";
-        while (!$list->Pempty() && $list->first() != " " && (strstr(self::special_chars, $list->first()) === false)) {
-          $buf.=$list->first();
-          $list=$list->rest();}
-        $result=$result->cons(new Symbol($buf));}
-      elseif ($list->first() == "\"") {
-		$buf="";
-		$list=$list->rest();
-		for(;!$list->Pempty() and $list->first() != "\"";$list=$list->rest())
-		  $buf.=$list->first();
-		$result=$result->cons($buf);
-	  }
-      elseif ($list->first() == "(") {
-        $buf=new LList ();
-        $list=$list->rest();
-        for($i=1;$i>0;$list=$list->rest()) {
-          $buf=$buf->cons($list->first());
-          if ($list->first() == "(")
-            $i++;
-          elseif ($list->first() == ")")
-            $i--;}
-        $buf=$buf->rest();
-        $result=$result->cons(self::coaless($buf->reverse()));}
-      elseif ($list->first() == "[") {
-        $buf=new LList ();
-        $list=$list->rest();
-        for($i=1;$i>0;$list=$list->rest()) {
-          $buf=$buf->cons($list->first());
-          if ($list->first() == "[")
-            $i++;
-          elseif ($list->first() == "]")
-            $i--;}
-        $a=array();
-        for($buf=self::coaless($buf->rest());!$buf->Pempty();$buf=$buf->rest()) {
-          array_push($a,$buf->first());}
-        $result=$result->cons(new AArray ($a));}
-      else {
-        if ($list->first() != " ")
-          $result=$result->cons($list->first());
-        $list=$list->rest();}}
-    return $result->reverse();}
-  public static function read($string) {
-    return RT::coaless(RT::tokenizer($string));}
-  public static function read_one($string) {
-    $x=self::read($string);
-    return $x->first();}
-  public static function p_eval($form,$env=null) {
-	print $form."\n";
-    if (is_object($form) && $form->type() == "list") {
-	  print $form."\n";
-      $s = self::resolve($form->first(),$env);
-	  $a = new LList();
-	  for($n=$form->rest();!$n->Pempty();$n=$n->rest())
-		$a=$a->cons(self::p_eval($n->first()));
-      return $s->call_array($a->reverse()->toArray());}
-    elseif (is_object($form) and $form->type() == "symbol") {
-	  print $form."\n";
-	  print RT::$root."\n";
-	  print self::resolve($form,$env)."\n";
-      return self::resolve($form,$env);}
-    else
-      return $form;}
-  public static function def ($symbol, $value) {
-    if (self::$root == null)
-      self::$root = new ImutableMap();
-    self::$root = self::$root->assoc($symbol,$value);
-    return null;}
-  public static function resolve ($symbol,$env=null) {
-    if ($env == null) {
-      return self::$root->get($symbol);}
+  static $table = null;
+  private $name = null;
+  public $symbol = true;
+  public $macro = false;
+  static function init () {
+    self :: $table = array ();}
+  static function pull ($name) {
+    if (array_key_exists ($name,self :: $table))
+      return self :: $table [$name];
     else {
-      for($n=$env;!$n->Pempty();$n=$n->rest()) {
-        $x=$n->first()->get($symbol);
-        if($x != null)
-          return $x;}
-	  return self::resolve($symbol);}}
-  public static function new_frame() {
-    if (self::$bindings == null)
-      self::$bindings = new LList();}
-  public static function pop_bindings() {
-    self::$bindings=self::$bindings->rest();}
-  public static function push_bindings ($symbols,$values) {
-    self::new_frame();
-    $c=new ImutableMap();
-    while (!$symbols->Pempty()) {
-      $c=$c->assoc($symbols->first(),$values->first());
-      $symbols=$symbols->rest();
-      $values=$values->rest();}
-    self::$bindings=self::$bindings->cons($c);}}
+      $x = new Symbol ($name);
+      self :: $table [$name] = $x;
+      return $x;}}
+  private function __construct ($name) {
+    $this -> name = $name;}
+  function __toString () {
+    return $this -> name;}
+  function lookup_in ($environment) {
+    $x = array_reverse ($environment);
+    foreach ($x as $env)
+      if (array_key_exists ($this."", $env))
+        return $env [$this.""];
+    if (array_key_exists ($this."", Lisp :: $root))
+      return Lisp :: $root [$this.""];
+    if (function_exists ($this.""))
+      return $this."";
+    die ("Symbol lookup failed ".$this);}}
 
-class Primitive {
-  private $func = null;
-  private $macro = null;
-  function __construct ($args, $body, $macro=null) {
-    $a="";
-    foreach($args->get() as $val)
-      $a.=$val->get().",";
-    $a=substr($a,0,strlen($a)-1);
-    $this->func=create_function($a, $body);
-	if ($macro != null)
-	  $this->macro = true;
-	else
-	  $this->macro = false;
+interface Callable {
+  function call ($args);}
+
+class Func implements Callable {
+  private $code = null;
+  private $environment = null;
+  private $parameters = null;
+  private $name = null;
+  function __construct ($parameters, $code, $environment, $name) {
+    array_unshift ($code, Symbol :: pull ("do"));
+    $this -> code = $code;
+    $this -> parameters = $parameters;
+    $this -> environment = $environment;
+    $this -> name = $name;}
+  function __toString () {
+    return "<#FUNCTION ".$this -> name." #>";}
+  function call ($args) {
+    $params = $this -> parameters;
+    if (in_array (Symbol :: pull ("&") , $params)) {
+      $name = array_pop ($params);
+      array_pop ($params);
+      $first = array_slice ($args, 0, sizeof($params));
+      $rest = array_slice ($args, sizeof($first), sizeof($args));
+      array_push ($first, $rest);
+      $args = $first;
+      array_push ($params, $name);}
+    if (sizeof ($args) != sizeof ($params))
+      die("PARAM COUNT MISMATCH");
+    $e = $this -> environment;
+    $tmp = Lisp :: let_ ($params, $args, $this -> code, $e, false);
+    while ($tmp instanceof Recur)
+      $tmp = Lisp :: let_ ($params, $tmp -> values, $this -> code, $e, false);
+    return $tmp;}}
+
+class Primitive implements Callable {
+  private $name = null;
+  public $macro = false;
+  function __toString () {
+	return "&lt;PRIMITIVE".$this -> name."&gt;";}
+  function __construct ($args, $body) {
+	$this -> name = create_function ($args, $body);}
+  function call ($args) {
+	return call_user_func_array ($this -> name, $args);}}
+
+class Recur {
+  public $values = null;
+  function __construct ($v) {
+    $this -> values = $v;}}
+
+class Atom {
+  private $value = null;
+  function __construct ($v) {
+    $this->value = $v;}
+  function getValue () {
+    return $this -> value;}
+  function setValue ($v) {
+    $this->value = $v;
+    return null;}}
+
+function str ($form) {
+  if (is_array ($form)) {
+    $buf="";
+    foreach ($form as $i)
+      $buf.=" ".str ($i);
+    return "(".trim ($buf).")";}
+  elseif (is_string ($form))
+    return '"'.str_replace ('"', '\"', $form).'"';
+  else if ($form == null)
+    return "nil";
+  else
+    return $form."";}
+
+function pr ($form) {
+  print str ($form);}
+
+function prn ($form) {
+  pr ($form);
+  print "\n";}
+
+/****************************************************************************/
+class Lisp {
+  static $root = null;
+  static function init () {
+    self :: $root = array ();
+    Symbol :: init ();}
+  static function def ($symbol, $value) {
+    self :: $root [$symbol.""] = $value;
+    return $symbol;}
+  static function eval1 ($expression, $environment=null) {
+    $environment = ($environment == null) ? array () : $environment;
+    if (!is_array ($expression)) {
+      if (is_object ($expression))
+        if ($expression instanceof Symbol)
+          return $expression -> lookup_in ($environment);
+        else
+          return $expression;
+      else
+        return $expression;}
+    else {
+      switch ($expression [0]."") {
+        case "quote":
+          return self :: quote ($expression, $environment);
+        case "if":
+          return self :: if_ ($expression, $environment);
+        case "do":
+          return self :: do_ ($expression, $environment);
+        case "fn*":
+          return self :: fn ($expression, $environment);
+        case "let":
+          return self :: let ($expression, $environment);
+        case "def":
+          return self :: def ($expression [1], self :: eval1 ($expression [2], $environment));
+        case "new":
+          return self :: new_ ($expression, $environment);
+        case "php":
+          return self :: php ($expression, $environment);
+        case "loop":
+          return self :: loop ($expression, $environment);
+        case "recur":
+          return self :: recur ($expression, $environment);
+        case ".":
+          return self :: dot ($expression, $environment);
+        default:
+          $b = array ();
+          foreach ($expression as $part)
+            array_push ($b, self :: eval1 ($part, $environment));
+          $op = array_shift ($b);
+          return self :: apply1 ($op, $b);
+          break;}}
     return null;}
-  function Pmacro() {
-	return $this->macro;}
-  function call_array($a) {
-    return call_user_func_array($this->func, $a);}
-  function call () {
-    $x=func_get_args();
-    return $this->call_array($x);}
-  function __toString () {return "&lt;PRIMITIVE&gt;";}}
+  static function dot ($expression, $environment) {
+    array_shift ($expression);
+    $obj = array_shift ($expression);
+    $obj = self :: eval1 ($obj, $environment);
+    $class = new ReflectionClass (get_class($obj));
+    $method = array_shift ($expression)."";
+    $expression = self :: map_eval ($expression, $environment);
+    if ($class -> hasMethod ($method))
+      return $class -> getMethod ($method) -> invokeArgs ($obj, $expression);
+    else {
+      if (sizeof ($expression) > 0) {
+        $class -> getProperty ($method) -> setValue ($obj, $expression [0]);
+        return $obj;}
+      else
+        return $class -> getProperty ($method) -> getValue ($obj);}
+    return null;}
+  static function fn ($expression, $environment) {
+    array_shift ($expression);
+    $name = Symbol :: pull ("this");
+    if (is_array ($expression [0]))
+      $args = array_shift ($expression);
+    else {
+      $name = array_shift ($expression);
+      $args = array_shift ($expression);}
+    return new Func ($args, $expression, $environment, $name);}
+  static function do_ ($expression, $environment) {
+    array_shift ($expression);
+    $b = null;
+    foreach ($expression as $part)
+      $b = self :: eval1 ($part, $environment);
+    return $b;}
+  static function recur ($expression, $environment) {
+    array_shift ($expression);
+    return new Recur (self :: map_eval ($expression, $environment));}
+  static function loop ($expression, $environment) {
+    array_shift ($expression);
+    $bindings = array_shift ($expression);
+    list ($names, $values) = self :: binding_form ($bindings);
+    array_unshift($expression, Symbol :: pull ("do"));
+    $tmp = self :: let_ ($names, $values, $expression, $environment);
+    while ($tmp instanceof Recur)
+      $tmp = self :: let_ ($names, $tmp -> values, $expression, $environment, false);
+    return $tmp;}
+  static function let_ ($names, $values, $expression, $environment, $eval = true) {
+    $frame = array ();
+    array_push ($environment, $frame);
+    foreach ($names as $key => $name) {
+      $frame [$name.""] = $eval ? self :: eval1 ($values [$key], $environment) : $values [$key];
+      array_pop ($environment);
+      array_push ($environment, $frame);}
+    return self :: eval1 ($expression, $environment);}
+  static function binding_form ($form) {
+    $names = array ();
+    $values = array ();
+    foreach ($form as $key => $value)
+      if ($key == 0 or ($key % 2) == 0)
+        array_push ($names, $value);
+      else
+        array_push ($values, $value);
+    return array ($names, $values);}
+  static function let ($expression, $environment) {
+    array_shift ($expression);
+    $bindings = array_shift ($expression);
+    list ($names, $values) = self :: binding_form ($bindings);
+    array_unshift($expression, Symbol :: pull ("do"));
+    return self :: let_ ($names, $values, $expression, $environment);}
+  static function if_ ($expression, $environment) {
+    if (self :: eval1 ($expression [1], $environment) != null)
+      return self :: eval1 ($expression [2], $environment);
+    else
+      return self :: eval1 ($expression [3], $environment);}
+  static function quote ($expression, $environment) {
+    array_shift ($expression);
+    return self :: unquote ($expression [0], $environment);}
+  static function unquote ($expression, $environment) {
+    if (is_array ($expression))
+      if ($expression [0]."" == "unquote")
+        return self :: eval1 ($expression [1], $environment);
+      else {
+        $tmp = array ();
+        foreach ($expression as $e)
+          array_push ($tmp, self :: unquote ($e, $environment));
+        return $tmp;
+      }
+    else
+      return $expression;
+    return $expression;
+  }
+  static function php ($expression, $environment) {
+    return eval ($expression [1]);}
+  static function new_ ($expression, $environment) {
+    array_shift ($expression);
+    $name = array_shift ($expression)."";
+    $class = new ReflectionClass ($name);
+    return $class -> newInstanceArgs (self :: map_eval ($expression, $environment));}
+  static function map_eval ($list_, $environment) {
+    $tmp = array ();
+    foreach ($list_ as $l)
+      array_push ($tmp, self :: eval1 ($l, $environment));
+    return $tmp;}
+  static function apply1 ($op, $args) {
+    if ($op instanceof Callable)
+      return $op -> call ($args);
+    return call_user_func_array ($op, $args);}}
 
-class FFunction {
- private $code = null; 
- private $args = null;
- private $env = null;
- function __construct ($args, $code, $env=null) {
-  $this->args=$args;
-  $this->code=$code;
-  $this->env=$env;}
-}
-
-print "<pre>";
-
-$y=RT::read_one("[]");
-$x=new Primitive($y, '$a=func_get_args();$b=0;foreach($a as $c) $b+=$c;return $b;');
-$z=new Symbol("+");
-RT::def($z, $x);
-print RT::$root;
-print "\n";
-print RT::resolve($z)->call(1 ,2);
-print "\n";
-$s = LList::llist(new Symbol("a"), new Symbol("b"));
-$v = LList::llist(1, 2);
-RT::push_bindings($s,$v);
-print RT::$bindings;
-print "\n";
-print RT::resolve(new Symbol("a"), RT::$bindings);
-print "\n";
-
-RT::def(new Symbol("resolve"), new Primitive(RT::read_one("[a]"),'return RT::resolve($a);'));
-RT::def(new Symbol("def"), new Primitive(RT::read_one("[a b]"),'return RT::def($b, $a);', true));
-RT::def(new Symbol("p_eval"), new Primitive(RT::read_one("[form]"),'return RT::p_eval($form);'));
-RT::def(new Symbol("list"), new Primitive(RT::read_one("[]"),
-										 '$a=func_get_args();
-										  return call_user_func_array("LList::llist",$a);'));
-RT::def(new Symbol("cons"), new Primitive(RT::read_one("[a b]"),
-										   'return $a->cons($b);'));
-RT::p_eval(RT::read_one("(def x 1)"));
-RT::p_eval(RT::read_one('(def y "hello")'));
-print "\n";
-print RT::resolve(new Symbol("y"));
-print "\n";
-print RT::p_eval(RT::read_one('(cons y (list 1 2 3 4))'), RT::$bindings);
+class Reader {
+  static $ignore = "\t\n\, ";
+  static function tok ($string) {
+    $buf=array ();
+    for ($i=0;$i<strlen ($string);$i++)
+      array_push ($buf, $string [$i]);
+    return $buf;}
+  static function read (& $stream) {
+    $output=array ();
+    while (sizeof ($stream) > 0)
+      if (strpbrk (Reader :: $ignore, $stream [0]))
+        array_shift ($stream);
+      else if ($stream [0] == ";")
+        for(;$stream [0] != "\n";array_shift ($stream));
+      else
+        array_push ($output, self :: next ($stream));
+    return $output;}
+  static function next (& $stream) {
+    if ($stream [0] == "\"") {
+      return self :: string ($stream);}
+    else if ($stream [0] == "'") {
+      array_shift ($stream);
+      return self :: quote ($stream);}
+    else if ($stream [0] == "~") {
+      array_shift($stream);
+      return self :: unquote ($stream);}
+    else if ($stream [0] == "(") {
+      return self :: list_ ($stream);}
+    else if ($stream [0] == "[") {
+      return self :: vector ($stream);}
+    else if (is_numeric ($stream[0])) {
+      return self :: number ($stream);}
+    else if (!strpbrk (Reader :: $ignore, $stream [0])) { 
+      return self :: symbol ($stream);}
+    else {
+      array_shift ($stream);}}
+  static function symbol (& $stream) {
+    $buf="";
+    while (sizeof ($stream) != 0 and !strpbrk(Reader :: $ignore, $stream [0])) {
+      $buf .= array_shift ($stream);
+    }
+    return ($buf == "null" or $buf == "nil") ? null : Symbol :: pull ($buf);
+  }
+  static function number (& $stream) {
+    $buf="";
+    while (sizeof ($stream) != 0 and is_numeric ($stream [0])) 
+      $buf .= array_shift ($stream);
+    return intval ($buf);
+  }
+  static function list_ (& $stream) {
+    $buf=array (array_shift ($stream));
+    for ($i = 1; $i != 0; ) {
+      if ($stream [0] == ")") $i--;
+      else if ($stream [0] == "(") $i++;
+      array_push ($buf, array_shift ($stream));}
+    array_shift ($buf);
+    array_pop ($buf);
+    return self :: read ($buf);}
+  static function vector (& $stream) {
+    $buf=array (array_shift ($stream));
+    for ($i=1;$i!=0;) {
+      if ($stream [0] == "]") $i--;
+      else if ($stream [0] == "[") $i++;
+      array_push ($buf, array_shift ($stream));
+    }
+    array_shift ($buf);
+    array_pop ($buf);
+    return self :: read ($buf);
+  }
+  static function string (& $stream) {
+    array_shift ($stream);
+    $buf="";
+    while(sizeof ($stream) != 0 and $stream [0] != "\"") {
+      if ($stream [0] == "\\" and $stream [1] == "\"")
+        array_shift ($stream);
+      $buf .= array_shift ($stream);
+    }
+    array_shift ($stream);
+    return $buf;}
+  static function quote (& $stream) {
+    $tmp = self :: next ($stream);
+    return array (Symbol :: pull ("quote"), $tmp);}
+  static function unquote (& $stream) {
+    $tmp = self :: next ($stream);
+    return array (Symbol :: pull ("unquote"), $tmp);}
+  static function macro_expand($form) {
+    if (is_array ($form)) {
+      $output = array ();
+      foreach ($form as $part)
+        if (is_array ($part))
+          array_push ($output, self::macro_expand ($part));
+        else
+          array_push ($output,$part);
+      $op = $output [0];
+      if($op instanceof Symbol and substr($op."", -1) == "." and $op."" != ".") {
+        $output[0] = Symbol :: pull (substr($op,0, strlen($op) -1));
+        $op = Symbol :: pull ("new");
+        array_unshift($output, $op);}
+      if($op instanceof Symbol and $op -> macro) {
+        $op = Lisp :: eval1 ($op);
+        array_shift ($output);
+        $output = Lisp :: apply1 ($op, $output);
+        $output = self :: macro_expand ($output);}
+      return $output;}
+    else
+      return $form;}}
+/****************************************************************************/
+Lisp :: init ();
+$x = file_get_contents("php.lisp");
+foreach(Reader :: read (Reader :: tok ($x)) as $form) {
+ Lisp :: eval1 (Reader :: macro_expand ($form));}
 ?>
