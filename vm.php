@@ -28,6 +28,9 @@ function exe ($op, $foo=null) {
     case 0x05: // 1 to stack specified by next on 0
       array_push($__STACKS[array_pop($__STACKS[0])], array_pop($__STACKS[1]));
       break;
+    case 0x06: // next to 1
+      array_push($__STACKS[1], array_pop($__STACKS[array_pop($__STACKS[0])]));
+      break;
     case 0x0F: //copy 1 to 2 
       $x = array_pop($__STACKS[1]);
       array_push($__STACKS[1], $x);
@@ -110,8 +113,14 @@ $prg = array (
   0x20,
   0x03, 0,
   0x03, 20,
+  0x03, 40,
+  0x05, 2,
   0x05, 2,
   0x21,
+  0x20,
+  0x06, 2,
+  0x06, 2,
+  0x10,
   0x20
 ); 
 
