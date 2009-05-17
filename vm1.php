@@ -1,5 +1,4 @@
 <?php
-//deadbeaf
 function & load_program ($file) {
   $fp = fopen($file, "r");
   $foo=fgets($fp,8);
@@ -21,11 +20,46 @@ function & load_program ($file) {
   //return unpack('n*', file_get_contents($file));
 }
 
+function linkr ($source) {
+  $out=array();
+  $functions=array();
+  $os=1;
+  foreach($source as $function => $body) {
+    foreach($body as $i)
+      array_push($out, $i);
+    $functions[$function] = $os+1;
+    $os+=sizeof($body);
+  }
+  array_unshift($out,null);
+  foreach($out as $k => $v) {
+    if (is_string($v)) {
+      $out[$k] = $functions[$v];
+    }
+  }
+  $out[0] = $functions["main"];
+  array_push($out,0x0fff);
+  //print "<pre>";
+  //print_r($out);
+  //exit;
+  return $out;
+}
+
+function assemble ($file, $progn, $constants) {
+  $fp = fopen($file,'w');
+  $c = serialize($constants);
+  fwrite($fp, pack("V", strlen($c)));
+  fwrite($fp,$c);
+  foreach($progn as $byte)
+    fputs($fp, pack("n", $byte));
+  fclose($fp);
+}
+
 function machine($store){
   $registers = array();
   $php = array();
   while($store[1] < 0x0fff) {
     $instruction = $store[$store[1]];
+    //print dechex($store[1])."=>".dechex($instruction)."<br>";
     switch($instruction & 0xf000){
       case 0x0000:
         $store[1] = $instruction & 0x0fff;
@@ -35,7 +69,7 @@ function machine($store){
           case 0x0000: //load to register
             $r = $store[$store[1] +1];
             $a = $store[$store[1] +2];
-            $registers[$r] = $store[$store[1] + 2 + $a];
+            $registers[$r] = $a;
             $store[1] += 3;
             break;
           case 0x0001: //store from register
@@ -55,18 +89,42 @@ function machine($store){
             print $registers[$r];
             $store[1] += 2;
             break;
+          case 0x0004: //load current pc
+            $r = $store[$store[1] +1];
+            $registers[$r] = $store[1];
+            $store[1] += 2;
+            break;
         }
         break;
-      case 0x2000: //relative jump
-        $distance = $instruction & 0x0fff;
-        $store[1] += $distance;
+      case 0x2000:
+        switch($instruction & 0x0fff) {
+          case 0x0000:
+            $a = $store[$store[1]+1];
+            $registers[0x00ff] = $store[1]+2;
+            $store[1]=$a;
+            break;
+          case 0x0001:
+            $store[1] = $registers[0x00ff];
+            break;
+        }
         break;
       case 0x3000: //addition
-        $r = $store[$store[1]+1];
-        $a = $store[$store[1]+2];
-        $b = $store[$store[1]+3];
-        $registers[$r] = $registers[$a] + $registers[$b];
-        $store[1] += 4;
+        switch($instruction & 0x0fff) {
+          case 0x0000:
+            $r = $registers[$store[$store[1]+1]];
+            $a = $registers[$store[$store[1]+2]];
+            $registers[0x00FF] = $r + $a;
+            $store[1] += 3;
+            break;
+          case 0x0001: //inc
+            $registers[$store[$store[1]+1]]++;
+            $store[1] += 2;
+            break;
+          case 0x0002: //dec
+            $registers[$store[$store[1]+1]]--;
+            $store[1] += 2;
+            break;
+        }
         break;
       case 0x4000: //copy
         $r = $store[$store[1]+1];
@@ -85,7 +143,7 @@ function machine($store){
         break;
       case 0x6000:
         if ($registers[0] != 0) {
-          $store[1] = $instruction & 0x0fff;
+          $store[1] = $registers[0x0001];
         } else {
           $store[1]++;
         }
@@ -127,31 +185,76 @@ function machine($store){
         break;
     }
   }
+  return $store;
 }
 
-
 $progn = array (
-  0x0002,
-  0x1002,0x0000,0x0004,
-  0x1002,0x0001,0x0002,
-  0x1002,0x0002,0x0005,
-  0x1002,0x0003,0x0000,
-  0x1002,0x0004,0x0006,
-  0x1002,0x0005,0x0007,
-  0x7000,0x0003,
-  0x1003,0x0000, //print hello
-  0x1003,0x0001, // print " "
-  0x1003,0x0002, //print " world"
-  0x7001,
-  0x7002,
-  0x7000,0x0005,
-  0x7000,0x0000,
-  0x7000,0x0004,
-  0x7001,
-  0x1003,0x0001,
-  0x1003,0x0000,
-  0x0fff, //jump to end
-);
+  "dump" => array (
+    0x4000,0x00f0,0x00ff,
+    0x1002,0x0001,0x0009,
+    0x1003,0x0001,
+    0x4000,0x0001,0xffff,
+    0x2000,"start-pre",
+    0xf000,
+    0x2000,"end-pre",
+    0x4000,0x00ff,0x00f0,
+    0x2001),
+  "start-pre" => array (
+    0x1002,0x0000,0x0003,
+    0x1003,0x0000,
+    0x4000,0x0000,0xffff,
+    0x2001),
+  "end-pre" => array (
+    0x1002,0x0000,0x0008,
+    0x1003,0x0000,
+    0x4000,0x0000,0xffff,
+    0x2001),
+  "space" => array (
+    0x1002,0x0000,0x0002,
+    0x1003,0x0000,
+    0x4000,0x0000,0xffff,
+    0x2001),
+  "hello world" => array (
+    0x1002,0x0000,0x0004,
+    0x1003,0x0000,
+    0x4000,0x00f0,0x00ff,
+    0x2000,"space",
+    0x4000,0x00ff,0x00f0,
+    0x1002,0x0000,0x0005,
+    0x1003,0x0000,
+    0x4000,0x0000,0xffff,
+    0x2001),
+  "date" => array (
+    0x1002,0x0000,0x0007,
+    0x7000,0x0000,
+    0x1002,0x0000,0x0006,
+    0x7000,0x0000,
+    0x7001,
+    0x7002,
+    0x4000,0x0001,0x0000,
+    0x2001),
+  "loop" => array (
+    0x3002,0x0000,
+    0x4000,0x0011,0x0000,
+    0x4000,0x0010,0x00ff,
+    0x2000, "hello world",
+    0x1003,0x0002,
+    0x4000,0x00ff,0x0010,
+    0x4000,0x0000,0x0011,
+    0x6000,
+    0x2001),
+  "main" => array (
+    0x2000, "hello world",
+    0x2000, "space",
+    0x2000, "date",
+    0x1003,0x0001,
+    0x1000,0x0000,5,
+    0x1000,0x0001,"loop",
+    0x1002,0x0002,0x000b,
+    0x1003,0x0002,
+    0x2000,"loop",
+    0x2000, "dump",
+    0x0fff));
 
 $constants = array (
   "time",
@@ -161,18 +264,13 @@ $constants = array (
   "hello",
   "world",
   "date",
-  "c"
+  "c",
+  "</pre>",
+  "<br>registers:<br>",
+  10,
+  "<br>"
 );
 
-function assemble ($file, $progn, $constants) {
-  $fp = fopen($file,'w');
-  $c = serialize($constants);
-  fwrite($fp, pack("V", strlen($c)));
-  fwrite($fp,$c);
-  foreach($progn as $byte)
-    fputs($fp, pack("n", $byte));
-  fclose($fp);
-}
-assemble("/tmp/foo.bin", $progn, $constants);
+assemble("/tmp/foo.bin", linkr($progn), $constants);
 machine(load_program("/tmp/foo.bin"));
 ?>
