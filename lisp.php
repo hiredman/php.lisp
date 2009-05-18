@@ -293,6 +293,11 @@ class Reader {
       return self :: list_ ($stream);}
     else if ($stream [0] == "[") {
       return self :: vector ($stream);}
+    else if ($stream[0] == "0" and $stream[1] == "x") {
+      array_shift($stream);
+      array_shift($stream);
+      $x = self :: number ($stream);
+      return hexdec("0x".$x);}
     else if (is_numeric ($stream[0])) {
       return self :: number ($stream);}
     else if (!strpbrk (Reader :: $ignore, $stream [0])) { 
