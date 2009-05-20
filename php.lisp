@@ -27,6 +27,7 @@
                         foreach(Reader :: read (Reader :: tok (file_get_contents ($file))) as $form)
                           $tmp = Lisp :: eval1 (Reader :: macro_expand ($form));
                        return $tmp;"))
+(def require-once (Primitive. "$a" "require_once(\"$a\");"));
 (def set-macro! (Primitive. "$s" "$s->macro=true;return $s;"))
 (set-macro! 'set-macro!)
 (def defmacro
@@ -98,6 +99,37 @@
       a
       (recur (+ x 100) (cons (g x (+ x 99)) a)))))
 
+(require-once "vm1.php")
+
+(defn create-program [filename code constants]
+  (assemble filename (linkr (labeler code)) constants))
+
+(create-program
+  "/tmp/foo.bin"
+  '(("dump"
+     0x1002 0x0000 0x0000
+     0x1003 0x0000
+     0x4000 0x0000 0xffff
+     0xf000
+     0x1002 0x0000 0x0001
+     0x1003 0x0000
+     0x4000 0x0000 0xffff
+     0x2001)
+    ("date"
+     0x1002 0x0000 0x0003
+     0x7000 0x0000
+     0x1002 0x0000 0x0002
+     0x7000 0x0000
+     0x7001
+     0x4000 0x0030 0x0000
+     0x2001)
+    ("main"
+     0x2000 "date"
+     0x1003 0x0030
+     0x2000 "dump"
+     0x0fff))
+  '("<pre>" "</pre>" "date" "c"))
+
 (print "
 <!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">
 <html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"en\" lang=\"en\">
@@ -117,7 +149,14 @@
      <li>" (str (let [x 1] '(a b c ~x))) "</li>
      <li>" (str (. (Recur. '(1 2 3)) values)) "</li>
      <li>" (load "foo.lisp") "</li>
-    </ul>
+    </ul>")
+
+(defn f [x]
+  (machine (load_program x)))
+
+(f "/tmp/foo.bin")
+
+(print "
     F&ograve;OBAR
   </body>
 </html>")
