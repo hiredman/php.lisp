@@ -296,7 +296,7 @@ class Reader {
     else if ($stream[0] == "0" and $stream[1] == "x") {
       array_shift($stream);
       array_shift($stream);
-      $x = self :: number ($stream);
+      $x = self :: hexnumber($stream);
       return hexdec("0x".$x);}
     else if (is_numeric ($stream[0])) {
       return self :: number ($stream);}
@@ -310,6 +310,16 @@ class Reader {
       $buf .= array_shift ($stream);
     }
     return ($buf == "null" or $buf == "nil") ? null : Symbol :: pull ($buf);
+  }
+  static function hexnumber (& $stream) {
+    $buf="";
+    while (sizeof ($stream) > 0 and
+      $stream[0] != " " and
+      in_array($stream[0], array("a","b","c","d","e","f")) or
+      is_numeric($stream[0])) {
+      $buf.=array_shift($stream);
+    }
+    return $buf;
   }
   static function number (& $stream) {
     $buf="";
