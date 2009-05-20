@@ -38,9 +38,6 @@ function linkr ($source) {
   }
   $out[0] = $functions["main"];
   array_push($out,0x0fff);
-  //print "<pre>";
-  //print_r($out);
-  //exit;
   return $out;
 }
 
@@ -57,6 +54,7 @@ function assemble ($file, $progn, $constants) {
 function machine($store){
   $registers = array();
   $php = array();
+  $context = array();
   while($store[1] < 0x0fff) {
     $instruction = $store[$store[1]];
     //print dechex($store[1])."=>".dechex($instruction)."<br>";
@@ -105,6 +103,20 @@ function machine($store){
             break;
           case 0x0001:
             $store[1] = $registers[0x00ff];
+            break;
+          case 0x0002:
+            $store[1] = $registers[$store[1]+1];
+            break;
+          case 0x0003:
+            array_push($context,$registers);
+            $store[1]++;
+            break;
+          case 0x0004:
+            $x = $registers;
+            $registers = array_pop($context);
+            for($i=0x0030;$i<0x0040;$i++)
+              $registers[$i] = $x[$i];
+            $store[1]++;
             break;
         }
         break;
@@ -180,6 +192,9 @@ function machine($store){
           case 0x0003:
             print_r($php);
             break;
+          case 0x0004:
+            print_r($context);
+            break;
         }
         $store[1]++;
         break;
@@ -188,89 +203,115 @@ function machine($store){
   return $store;
 }
 
-$progn = array (
-  "dump" => array (
-    0x4000,0x00f0,0x00ff,
-    0x1002,0x0001,0x0009,
-    0x1003,0x0001,
-    0x4000,0x0001,0xffff,
-    0x2000,"start-pre",
-    0xf000,
-    0x2000,"end-pre",
-    0x4000,0x00ff,0x00f0,
-    0x2001),
-  "start-pre" => array (
-    0x1002,0x0000,0x0003,
-    0x1003,0x0000,
-    0x4000,0x0000,0xffff,
-    0x2001),
-  "end-pre" => array (
-    0x1002,0x0000,0x0008,
-    0x1003,0x0000,
-    0x4000,0x0000,0xffff,
-    0x2001),
-  "space" => array (
-    0x1002,0x0000,0x0002,
-    0x1003,0x0000,
-    0x4000,0x0000,0xffff,
-    0x2001),
-  "hello world" => array (
-    0x1002,0x0000,0x0004,
-    0x1003,0x0000,
-    0x4000,0x00f0,0x00ff,
-    0x2000,"space",
-    0x4000,0x00ff,0x00f0,
-    0x1002,0x0000,0x0005,
-    0x1003,0x0000,
-    0x4000,0x0000,0xffff,
-    0x2001),
-  "date" => array (
-    0x1002,0x0000,0x0007,
-    0x7000,0x0000,
-    0x1002,0x0000,0x0006,
-    0x7000,0x0000,
-    0x7001,
-    0x7002,
-    0x4000,0x0001,0x0000,
-    0x2001),
-  "loop" => array (
-    0x3002,0x0000,
-    0x4000,0x0011,0x0000,
-    0x4000,0x0010,0x00ff,
-    0x2000, "hello world",
-    0x1003,0x0002,
-    0x4000,0x00ff,0x0010,
-    0x4000,0x0000,0x0011,
-    0x6000,
-    0x2001),
-  "main" => array (
-    0x2000, "hello world",
-    0x2000, "space",
-    0x2000, "date",
-    0x1003,0x0001,
-    0x1000,0x0000,5,
-    0x1000,0x0001,"loop",
-    0x1002,0x0002,0x000b,
-    0x1003,0x0002,
-    0x2000,"loop",
-    0x2000, "dump",
-    0x0fff));
+function labeler ($ls) {
+  $output = array ();
+  foreach ($ls as $l) {
+    $lab = array_shift($l);
+    $output[$lab] = $l; 
+  }
+  return $output;
+}
 
-$constants = array (
-  "time",
-  25,
-  " ",
-  "<pre>",
-  "hello",
-  "world",
-  "date",
-  "c",
-  "</pre>",
-  "<br>registers:<br>",
-  10,
-  "<br>"
-);
-
-assemble("/tmp/foo.bin", linkr($progn), $constants);
-machine(load_program("/tmp/foo.bin"));
+//$progn = array (
+//  array (
+//    "dump",
+//    0x4000,0x00f0,0x00ff,
+//    0x1002,0x0001,0x0009,
+//    0x1003,0x0001,
+//    0x4000,0x0001,0xffff,
+//    0x2000,"start-pre",
+//    0xf000,
+//    0x2000,"end-pre",
+//    0x4000,0x00ff,0x00f0,
+//    0x2001),
+//  array (
+//    "start-pre",
+//    0x1002,0x0000,0x0003,
+//    0x1003,0x0000,
+//    0x4000,0x0000,0xffff,
+//    0x2001),
+//  array (
+//    "end-pre",
+//    0x1002,0x0000,0x0008,
+//    0x1003,0x0000,
+//    0x4000,0x0000,0xffff,
+//    0x2001),
+//  array (
+//    "space",
+//    0x1002,0x0000,0x0002,
+//    0x1003,0x0000,
+//    0x4000,0x0000,0xffff,
+//    0x2001),
+//  array (
+//    "hello world",
+//    0x1002,0x0000,0x0004,
+//    0x1003,0x0000,
+//    0x2003,
+//    0x2000,"space",
+//    0x2004,
+//    0x1002,0x0000,0x0005,
+//    0x1003,0x0000,
+//    0x4000,0x0000,0xffff,
+//    0x2001),
+//  array (
+//    "date",
+//    0x1002,0x0000,0x0007,
+//    0x7000,0x0000,
+//    0x1002,0x0000,0x0006,
+//    0x7000,0x0000,
+//    0x7001,
+//    0x7002,
+//    0x4000,0x0030,0x0000,
+//    0x2001),
+//  array (
+//    "havoc",
+//    0x1003,0x0003,
+//    0x1003,0x0002,
+//    0x2001),
+//  array (
+//    "loop",
+//    0x3002,0x0000,
+//    0x2003,
+//    0x2000,havoc,
+//    0x2004,
+//    0x6000,
+//    0x2001),
+//  array (
+//    "main",
+//    0x2000, "hello world",
+//    0x2000, "space",
+//    0x2003,
+//    0x2000, "date",
+//    0x2004,
+//    0x1003,0x0030,
+//    0x4000,0x0030,0x0000,
+//    0x1000,0x0000,5,
+//    0x1000,0x0001,"loop",
+//    0x1002,0x0002,0x000b,
+//    0x1002,0x0003,0x000c,
+//    0x1003,0x0002,
+//    0x2000,"loop",
+//    0x4000,0x0002,0xffff,
+//    0x4000,0x0003,0xffff,
+//    0x2000, "dump",
+//    0x0fff));
+//
+//$constants = array (
+//  "time",
+//  25,
+//  " ",
+//  "<pre>",
+//  "hello",
+//  "world",
+//  "date",
+//  "c",
+//  "</pre>",
+//  "<br>registers:<br>",
+//  10,
+//  "<br>",
+//  "cry havoc and let slip the dogs of war"
+//);
+//
+//assemble("/tmp/foo.bin", linkr(labeler($progn)), $constants);
+//machine(load_program("/tmp/foo.bin"));
 ?>
