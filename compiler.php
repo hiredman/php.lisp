@@ -1,7 +1,7 @@
 <?php
 $FUNCTIONAL_TABLE=array();
 $REGISTERS=array();
-$STACK=array();
+$STACK();
 function gensym () {
   global $FUNCTIONAL_TABLE;
   $x=rand_str();
