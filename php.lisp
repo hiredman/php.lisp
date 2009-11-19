@@ -29,6 +29,7 @@
                        return $tmp;"))
 (def require-once (Primitive. "$a" "require_once(\"$a\");"));
 (def set-macro! (Primitive. "$s" "$s->macro=true;return $s;"))
+(def to-primitive (Primitive. "$a" "return $a->toPrim();"))
 (set-macro! 'set-macro!)
 (def defmacro
   (fn* (name_ args_ & body_)
@@ -149,6 +150,7 @@
      <li>" (str (let [x 1] '(a b c ~x))) "</li>
      <li>" (str (. (Recur. '(1 2 3)) values)) "</li>
      <li>" (load "foo.lisp") "</li>
+     <li>" ((to-primitive (let [a 2] (fn* [x] (+ a x)))) 1) " </li>
     </ul>")
 
 (defn f [x]
