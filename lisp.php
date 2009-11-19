@@ -1,13 +1,12 @@
 <?php
 class Symbol {
-  static $table = null;
+  static $table = array();
   private $name = null;
   public $symbol = true;
   public $macro = false;
-  static function init () {
-    self :: $table = array ();}
+  static function init () {}
   static function pull ($name) {
-    if (array_key_exists ($name,self :: $table))
+    if (array_key_exists ($name, self :: $table))
       return self :: $table [$name];
     else {
       $x = new Symbol ($name);
@@ -36,6 +35,7 @@ class Func implements Callable {
   private $environment = null;
   private $parameters = null;
   private $name = null;
+  static $captured = array();
   function __construct ($parameters, $code, $environment, $name) {
     array_unshift ($code, Symbol :: pull ("do"));
     $this -> code = $code;
@@ -60,7 +60,49 @@ class Func implements Callable {
     $tmp = Lisp :: let_ ($params, $args, $this -> code, $e, false);
     while ($tmp instanceof Recur)
       $tmp = Lisp :: let_ ($params, $tmp -> values, $this -> code, $e, false);
-    return $tmp;}}
+    return $tmp;}
+  static function frees ($code, $env) {
+    if (is_array($code)) {
+      $out = array ();
+      foreach ($code as $a) {
+        $x = self :: frees ($a, $env);
+        if ($x != null)
+          if (is_array($x))
+            foreach($x as $y)
+              array_push($out, $y);
+          else
+            array_push($out, $x);
+      }
+      $out2 = array();
+      foreach ($out as $o) {
+        if (!array_key_exists("".$o, Lisp :: $root))
+          array_push($out2, $o);
+      }
+      return $out2;
+    } elseif ($code instanceof Symbol) {
+      return $code;
+    } else {
+    }
+  }
+  function toPrim () {
+    $a = self :: frees ($this -> code, $this -> environment);
+    $binds = array();
+    foreach($a as $b)
+      if (!in_array ($b, $this -> parameters))
+        $binds["".$b] = $b -> lookup_in ($this -> environment);
+    $binds=array($binds);
+    array_push(Func :: $captured, array($binds, $this -> code, $this -> parameters));
+    $ptr = sizeof(Func :: $captured) - 1;
+    $x = new Primitive("","\$x = func_get_args();
+                           \$binds = Func :: \$captured [$ptr][0];
+                           \$code = Func :: \$captured [$ptr][1];
+                           \$params = Func :: \$captured[$ptr][2];
+                           \$tmp = Lisp :: let_ (\$params, \$x, \$code, \$binds, false);
+                           while (\$tmp instanceof Recur)
+                            \$tmp = Lisp :: let_ (\$params, \$tmp -> values, \$code, \$binds, false);
+                           return \$tmp;");
+
+    return $x;}}
 
 class Primitive implements Callable {
   private $name = null;
@@ -110,6 +152,7 @@ function prn ($form) {
 /****************************************************************************/
 class Lisp {
   static $root = null;
+  static $STACK = array();
   static function init () {
     self :: $root = array ();
     Symbol :: init ();}
@@ -263,6 +306,22 @@ class Lisp {
       return $op -> call ($args);
     return call_user_func_array ($op, $args);}}
 
+class LispII {
+  static $STACK = array();
+  static $ROOT = array();
+  static function compile ($code) {
+    if (is_array($code)) {
+      $op = $code[0]."";
+      if ($op == "def") {
+        return "LispII :: \$ROOT ['".$code[1]."'] = " . self :: compile ($code[2]) . ";\n";
+      } else {
+      }
+    } elseif (is_numeric($code)) {
+      return $code;
+    }
+  }
+}
+
 class Reader {
   static $ignore = "\t\n\, ";
   static function tok ($string) {
@@ -386,6 +445,8 @@ class Reader {
       return $form;}}
 /****************************************************************************/
 Lisp :: init ();
+Lisp :: def (Symbol :: pull ("do"), null);
+Lisp :: def (Symbol :: pull ("loop"), null);
 $x = file_get_contents("php.lisp");
 foreach(Reader :: read (Reader :: tok ($x)) as $form) {
  Lisp :: eval1 (Reader :: macro_expand ($form));}
