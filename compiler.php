@@ -149,21 +149,6 @@ class Reader {
     else
       return $form;}}
 
-//$x = Reader :: tok ($x);
-//$x = Reader :: read ($x);
-//$x = $x[0];
-//print "<pre>";
-//var_dump($x);
-//print "<br/>";
-//function c($ar) {
-//  $x = $ar[0]."";
-//  switch($ar[0]."") {
-//    case "def":
-//      return "global \$".$ar[1].";\n\$".$ar[1]."=".$ar[2].";";
-//  }
-//}
-//print c($x);
-
 $buf="";
 while(!feof(STDIN)){
   $buf.=fgets(STDIN);
@@ -173,57 +158,183 @@ $x = Reader :: read ($x);
 
 $FUNCTIONAL_TABLE=array();
 
-function gensym () {
+function gensym ()
+{
   global $FUNCTIONAL_TABLE;
-  $x=rand_str();
-  for($x=rand_str();in_array($x,$FUNCTIONAL_TABLE);$x=rand_str()){}
+  $x=rand_str(5);
+  for($x=rand_str(5);in_array($x,$FUNCTIONAL_TABLE);$x=rand_str()){}
   array_push($FUNCTIONAL_TABLE, $x);
   return $x;
 }
 
-function compile($expr, &$oob) {
-  if(is_array($expr)) {
-    switch($expr[0].""){
+function compile ($expr, &$oob)
+{
+  global $ENVIRONMENT;
+  if (is_array($expr))
+  {
+    switch($expr[0]."")
+    {
       case "def":
         return compile_def($expr,$oob);
       case "fn":
         return compile_fn($expr,$oob);
       case "do":
         return compile_do($expr,$oob);
+      case "«":
+        compile_php($expr,$oob);
+        return null;
+      case "function":
+        return compile_function($expr,$oob);
+      case "macro":
+        compile_macro($expr,$oob);
+        return null;
+      case "if":
+        return compile_if($expr,$oob);
+      case "quote":
+        return var_export($expr[1], true);
+      case "env":
+        return compile_env($expr,$oob);
+      case "inline":
+        return compile_inline($expr,$oob);
+      case "let":
+        return compile_let($expr, $oob);
+      case "-":
+      case "*":
+      case "/":
+      case  "+":
+        return compile_math($expr,$oob);
       default:
         return compile_call($expr,$oob);
     }
-  } else {
-    if ($expr instanceof Symbol){
-      return "lookup(\"".$expr."\",\$env)";
+  }
+  else
+  {
+    if ($expr instanceof Symbol)
+    {
+      if ($expr."" == "true") return "true";
+      if ($expr."" == "false") return "false";
+      if ($expr."" == "nil") return "null";
+
+      $p = count($oob["locals"]) - 1;
+      if (is_array($oob["locals"][$p]) && in_array($expr,$oob["locals"][$p]))
+      {
+        return compile(array(Symbol :: pull ("env"), $expr),$oob);
+      }
+
+      $expr=mangle($expr);
+      //return "(function_exists(\"".$expr."\") ? \"".$expr."\" : \$GLOBALS[\"".$expr."\"])";
+      return "(\$GLOBALS[\"".$expr."\"] ? \$GLOBALS[\"".$expr."\"] : \"".$expr."\")";
     }
+    if (is_string($expr))
+      return var_export($expr."", true);
+    if ($expr == null) return "null";
     return $expr."";
   }
 }
 
-function compile_def($expr, &$oob) {
+function compile_def ($expr, &$oob)
+{
   $name=$expr[1];
+  $oob["name"]="_".mangle($name."");
   $expr=compile($expr[2], $oob);
-  return "\$".$name."=".$expr.";\n";
+  $oob["name"]=null;
+  return "\$".mangle($name)."=".$expr."";
 }
 
 function compile_fn ($expr, &$oob)
 {
+  global $ENVIRONMENT;
+  $name=($oob["name"] == null) ? $name=gensym() : $oob["name"];
+  $name_args = $oob["name_args"];
+  $oob["name"] = null;
+  $oob["name_args"] = null;
   $args=$expr[1];
+  array_push($oob["locals"], $args);
   array_shift($expr);
   array_shift($expr);
+  $syms = extract_symbols($expr);
   array_unshift($expr,Symbol::pull("do"));
   $body=compile($expr, $oob);
   $buf="";
+  $buf3="";
   foreach($args as $arg)
+  {
     $buf.="\"".$arg."\",";
+    $buf3.="\$".$arg.",";
+  }
   $buf=substr($buf,0,-1);
-  $name=gensym();
-  $f="function ".$name." (\$env){\n";
+  $buf3=substr($buf3,0,-1);
+  $f="";
+  if ($name_args == null )
+  {
+    $f.="function ".$name." (".$ENVIRONMENT.")\n{";
+    foreach(array_unique(array_merge($syms,$args)) as $s)
+      if (!in_array($s."", array("+")))
+        $f.="\$".mangle($s)."=".$ENVIRONMENT."[\"".mangle($s)."\"];";
+    $f.="\n  //\n";
+  }
+  else
+  {
+    $f.="function ".$name." (".$buf3.")\n{\n";
+  }
   $f.=$body;
   $f.="\n}";
+  eval($f);
   array_push($oob, $f);
-  return "closure(\$env,array(".$buf."),\"".$name."\")";
+  $buf2="";
+  foreach($syms as $s)
+    $buf2.="\"".$s."\",";
+  $buf2=mangle(substr($buf2,0,-1));
+  array_pop($oob["locals"]);
+  return "call(".compile(Symbol::pull("closure"), $oob).",extend(".$ENVIRONMENT.",".$buf2."),array(".$buf."),\"".$name."\")";
+  //foreach($syms as $s)
+  //  $buf2.="\"".$s."\"=>".$ENVIRONMENT."[\"".$s."\"],";
+  //$buf2=mangle(substr($buf2,0,-1));
+  //array_pop($oob["locals"]);
+  //return "call(".compile(Symbol::pull("closure"), $oob).",".$buf2."),array(".$buf."),\"".$name."\")";
+
+}
+
+function extract_symbols ($expr)
+{
+  $output=array();
+  $sub=array();
+  foreach ($expr as $e)
+  {
+    if ($e instanceof Symbol)
+      array_push($output, $e);
+    if (is_array($e))
+      $output = array_merge($output, extract_symbols($e));
+  }
+  return $output;
+}
+
+function compile_php ($expr, &$oob)
+{
+  array_shift($expr);
+  $name=array_shift($expr)."";
+  $args=array_shift($expr)."";
+  $body=array_shift($expr)."";
+  $f="function ".$name." (".$args.")\n{\n";
+  $f.=$body;
+  $f.="\n}\n";
+  array_push($oob,$f);
+}
+
+function compile_function ($expr, &$oob)
+{
+  array_shift($expr);
+  $name=mangle(array_shift($expr)."");
+  array_unshift($expr,Symbol::pull("fn"));
+  $oob["name"] = $name."";
+  $oob["name_args"] = true;
+  compile($expr, $oob);
+  return null;
+}
+
+function compile_inline ($expr, &$oob)
+{
+  return $expr[1];
 }
 
 function compile_do ($expr, &$oob)
@@ -232,66 +343,161 @@ function compile_do ($expr, &$oob)
   $last = array_pop($expr);
   $buf="";
   foreach($expr as $e)
-    $buf.=compile($e,$oob);
-  $buf.="return ".compile($last, $oob).";\n";
+    $buf.="  ".compile($e,$oob).";\n";
+  $buf.="  return ".compile($last, $oob).";";
   return $buf;
 }
 
 function compile_call ($expr, &$oob)
 {
+  static $php_forms = array("print","array");
   $name=array_shift($expr);
+  if (array_key_exists($name."", $oob["macros"]))
+  {
+    array_unshift($expr,$oob["macros"][$name.""]);
+    return compile(call_user_func_array("call",$expr), $oob); 
+  }
+  $buf=",";
+  foreach($expr as $e)
+    $buf.=compile(($e instanceof Symbol) ? array(Symbol::pull("env"),$e) : $e,$oob).",";
+  $buf=substr($buf,0,-1);
+  $buf=($buf == ",") ? "" : $buf;
+  if(function_exists($name."") or in_array($name."", $php_forms))
+    return "".$name."(".substr($buf,1,strlen($buf)).")";
+  return "call(".compile($name,$oob).$buf.")";
+}
+
+function compile_env ($expr, &$oob)
+{
+  global $ENVIRONMENT;
+  list($_, $name) = $expr;
+  return "\$".mangle($name."");
+}
+
+function compile_math ($expr, &$oob)
+{
+  $op=array_shift($expr)."";
   $buf="";
   foreach($expr as $e)
-    $buf.=compile($e,$oob).",";
+    $buf.=compile($e,$oob).$op;
   $buf=substr($buf,0,-1);
-  return "call(".compile($name,$oob).",".$buf.")";
+  $buf="(".$buf.")";
+  return $buf;
 }
 
-
-function lookup ($name,$env)
+function compile_if ($expr, &$oob)
 {
-  if(array_key_exists($name,$env))
-  {
-    return $env[$name];
-  }
-  else
-  {
-    return $GLOBALS[$name];
-  }
+  list($_, $pred, $true, $false) = $expr;
+  return "((".compile($pred,$oob)." != null) ? (".compile($true,$oob).") : (" . compile($false,$oob)."))";
 }
 
-function call ()
+function compile_macro ($expr, &$oob)
 {
-  $x=func_get_args();
-  $closure=array_shift($x);
-  if(function_exists($closure))
+  list($_, $name, $fn) = $expr;
+  $m = array();
+  $e = compile($fn,$m);
+  eval($m[0]);
+  $e=explode("\"", $e);
+  array_pop($e);
+  $nam=array_pop($e);
+  array_shift($fn);
+  $args = array_shift($fn);
+  $fn = array(array(),$args,$nam);
+  $oob["macros"][$name.""] = $fn;
+}
+
+function mangle ($name)
+{
+  static $x = array(
+    "+" => "__PLUS__",
+    "?" => "__QMARK__",
+    "!" => "__BANG__",
+    "-" => "__HYPHEN__",
+    "=" => "__EQUAL__"
+  );
+  $name=$name."";
+  foreach($x as $k => $v)
+    $name=str_replace($k,$v,$name);
+  return $name;
+}
+
+$ENVIRONMENT="\$E__";
+
+$bootstrap = '
+(« call "" "
+  $x = func_get_args();
+  $closure=first($x);
+  $x=rest($x);
+  if (function_exists($closure))
     return call_user_func_array($closure,$x);
-  $fun=$closure[2];
-  $arg_names=$closure[1];
-  $env=$closure[0];
   $args=array();
   foreach($x as $key => $value)
-    $args[$arg_names[$key]]=$value;
-  return call_user_func($fun,array_merge($env,$args));
-}
-$w=array();
+    $args[$closure[1][$key]] = $value;
+  $closure[0] = ($closure[0] == null) ? array() : $closure[0];
+  return call_user_func($closure[2], array_merge($closure[0],$args));
+  ")
+(« extend "" "
+  $x = func_get_args();
+  $env = array_shift($x);
+  $env = ($env == null) ? array() : $env;
+  $output=array();
+  foreach ($x as $y)
+  {
+    if (array_key_exists($y,$env))
+      $output[$y]=$env[$y];
+  }
+  return $output;
+")
+';
+
+$out_of_band=array();
+$bootstrap = Reader :: read (Reader :: tok ($bootstrap));
+foreach($bootstrap as $form)
+  compile($form, $out_of_band); 
+foreach($out_of_band as $f)
+  eval($f);
+
+$out_of_band["macros"]=array();
+$out_of_band["locals"]=array();
 $c="";
-foreach($x as $r)
-  $c.=compile($r,$w);
-$w["locals"] = "";
-$w=implode("\n",$w);
+
+$bootstrap = '
+(function first [x] (inline "$x[0]"))
+(function rest [x] (array_shift x) x)
+(function closure [e a n] (array e a n))
+(function = [a b] (inline "$a == $b"))
+(def cons (fn [i l]
+  ((fn [l] (array_unshift l i) l) (if (= nil l) (array) l))))
+  ';
+$bootstrap = Reader :: read (Reader :: tok ($bootstrap));
+foreach($bootstrap as $form)
+  $c.=compile($form, $out_of_band).";\n"; 
+
+
+
+foreach ($x as $r)
+{
+  $c.=compile($r,$out_of_band).";\n";
+}
+
+$out_of_band["locals"] = "";
+$out_of_band["macros"] = "";
+$out_of_band=implode("\n",$out_of_band);
+
 echo "<?php\n";
-echo "function write(\$x){print \$x;}\n";
-echo "function closure (\$env=null,\$args,\$name) {return array(\$env,\$args,\$name);}\n";
-echo "function lookup (\$name,\$env) {return (array_key_exists(\$name,\$env)) ? \$env[\$name] : ((function_exists(\$name)) ? \$name : \$GLOBALS[\$name]);}\n";
-echo "\$env=array();\n";
-echo $w."\n";
+echo "/* Input\n";
+echo $buf;
+echo "*/\n\n";
+echo $ENVIRONMENT."=array();\n\n";
+echo $out_of_band."\n\n";
 echo $c."\n";
 echo "?>";
 
 // Generate a random character string
 function rand_str($length = 32, $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz')
 {
+    static $num = 0;
+    $num++;
     // Length of character list
     $chars_length = (strlen($chars) - 1);
 
@@ -309,5 +515,6 @@ function rand_str($length = 32, $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl
     }
    
     // Return the string
-    return $string;
-}?>
+    return $string.$num;
+}
+?>
