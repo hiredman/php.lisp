@@ -172,6 +172,8 @@ function compile ($expr, &$oob)
         return compile_inline($expr,$oob);
       case "let":
         return compile_let($expr, $oob);
+      case "recur":
+        return compile_recur($expr, $oob);
       case "-":
       case "*":
       case "/":
@@ -219,6 +221,7 @@ function compile_def ($expr, &$oob)
 function compile_fn ($expr, &$oob)
 {
   global $ENVIRONMENT;
+  global $RECUR_KEY;
   $name=($oob["name"] == null) ? $name=gensym() : $oob["name"];
   $name_args = $oob["name_args"];
   $oob["name"] = null;
@@ -228,8 +231,14 @@ function compile_fn ($expr, &$oob)
   array_shift($expr);
   array_shift($expr);
   $syms = extract_symbols($expr);
+  $tail = array_pop($expr);
   array_unshift($expr,symbol("do"));
   $body=compile($expr, $oob);
+  $tail_name=$ENVIRONMENT;
+  $tail="".$tail_name."=".compile($tail, $oob).";\n";
+  $body.="\n".$tail;
+  $body="".$body."\n  }while(is_array(".$tail_name.") && ".$tail_name."[\"".$RECUR_KEY."\"] == true);\n";
+  $body.="return ".$tail_name.";\n";
   $buf="";
   $buf3="";
   foreach($args as $arg)
@@ -242,15 +251,14 @@ function compile_fn ($expr, &$oob)
   $f="";
   if ($name_args == null )
   {
-    $f.="function ".$name." (".$ENVIRONMENT.")\n{";
+    $f.="function ".$name." (".$ENVIRONMENT.")\n{\n  do{";
     foreach(array_unique(array_merge($syms,$args)) as $s)
       if (!in_array($s."", array("+")))
         $f.="\$".mangle($s)."=".$ENVIRONMENT."[\"".$s."\"];";
-    $f.="\n  //\n";
   }
   else
   {
-    $f.="function ".$name." (".mangle($buf3).")\n{\n";
+    $f.="function ".$name." (".mangle($buf3).")\n{\n  do{";
   }
   $f.=$body;
   $f.="\n}";
@@ -268,6 +276,20 @@ function compile_fn ($expr, &$oob)
   //array_pop($oob["locals"]);
   //return "call(".compile(Symbol::pull("closure"), $oob).",".$buf2."),array(".$buf."),\"".$name."\")";
 
+}
+
+function compile_recur ($expr, &$oob)
+{
+  global $ENVIRONMENT;
+  global $RECUR_KEY;
+  array_shift($expr);
+  $names=$oob["locals"][sizeof($oob["locals"])-1];
+  $m="";
+  for($i=0;$i<sizeof($names);$i++)
+    $m.="\"".$names[$i]."\"=>".compile($expr[$i],$oob).",";
+  $m.=$RECUR_KEY." => true,";
+  $m="array_merge(".$ENVIRONMENT.",array(".substr($m,0,-1)."))";
+  return $m;
 }
 
 function extract_symbols ($expr)
@@ -315,11 +337,11 @@ function compile_inline ($expr, &$oob)
 function compile_do ($expr, &$oob)
 {
   array_shift($expr);
-  $last = array_pop($expr);
+  //$last = array_pop($expr);
   $buf="";
   foreach($expr as $e)
     $buf.="  ".compile($e,$oob).";\n";
-  $buf.="  return ".compile($last, $oob).";";
+  //$buf.="  return ".compile($last, $oob).";";
   return $buf;
 }
 
@@ -397,18 +419,27 @@ function mangle ($name)
 }
 
 $ENVIRONMENT="\$E__";
+$RECUR_KEY=gensym();
 
 $bootstrap = '
 (« call "" "
   $x = func_get_args();
   $closure=first($x);
   $x=rest($x);
+  $out=null;
   if (function_exists($closure))
-    return call_user_func_array($closure,$x);
-  $args=array();
-  foreach($x as $key => $value) $args[$closure[1][$key]] = $value;
-  $closure[0] = ($closure[0] == null) ? array() : $closure[0];
-  return call_user_func($closure[2], array_merge($closure[0],$args));
+  {
+    $out = call_user_func_array($closure,$x);
+  }
+  else
+  {
+    $args=array();
+    foreach($x as $key => $value) $args[$closure[1][$key]] = $value;
+    $closure[0] = ($closure[0] == null) ? array() : $closure[0];
+    $closure[0][\"thisfn\"] = $closure;
+    $out = call_user_func($closure[2], array_merge($closure[0],$args));
+  }
+  return $out;
   ")
 (« extend "" "
   $x = func_get_args();
@@ -448,7 +479,7 @@ echo "<?php\n";
 echo "/* Input\n";
 echo $buf;
 echo "*/\n\n";
-echo $ENVIRONMENT."=array();\n\n";
+echo $ENVIRONMENT."=&\$GLOBALS;\n\n";
 echo $out_of_band."\n\n";
 echo $c."\n";
 echo "?>";
