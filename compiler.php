@@ -1,31 +1,5 @@
 <?php
-class Symbol {
-  static $table = array();
-  private $name = null;
-  public $symbol = true;
-  public $macro = false;
-  static function init () {}
-  static function pull ($name) {
-    if (array_key_exists ($name, self :: $table))
-      return self :: $table [$name];
-    else {
-      $x = new Symbol ($name);
-      self :: $table [$name] = $x;
-      return $x;}}
-  private function __construct ($name) {
-    $this -> name = $name;}
-  function __toString () {
-    return $this -> name;}
-  function lookup_in ($environment) {
-    $x = array_reverse ($environment);
-    foreach ($x as $env)
-      if (array_key_exists ($this."", $env))
-        return $env [$this.""];
-    if (array_key_exists ($this."", Lisp :: $root))
-      return Lisp :: $root [$this.""];
-    if (function_exists ($this.""))
-      return $this."";
-    die ("Symbol lookup failed ".$this);}}
+require_once('symbol.php');
 
 class Reader {
   static $ignore = "\t\n\, ";
@@ -73,7 +47,7 @@ class Reader {
     while (sizeof ($stream) != 0 and !strpbrk(Reader :: $ignore, $stream [0])) {
       $buf .= array_shift ($stream);
     }
-    return ($buf == "null" or $buf == "nil") ? null : Symbol :: pull ($buf);
+    return ($buf == "null" or $buf == "nil") ? null : symbol($buf);
   }
   static function hexnumber (& $stream) {
     $buf="";
@@ -123,10 +97,10 @@ class Reader {
     return $buf;}
   static function quote (& $stream) {
     $tmp = self :: next ($stream);
-    return array (Symbol :: pull ("quote"), $tmp);}
+    return array (symbol("quote"), $tmp);}
   static function unquote (& $stream) {
     $tmp = self :: next ($stream);
-    return array (Symbol :: pull ("unquote"), $tmp);}
+    return array (symbol("unquote"), $tmp);}
   static function macro_expand($form) {
     if (is_array ($form)) {
       $output = array ();
@@ -136,11 +110,11 @@ class Reader {
         else
           array_push ($output,$part);
       $op = $output [0];
-      if($op instanceof Symbol and substr($op."", -1) == "." and $op."" != ".") {
-        $output[0] = Symbol :: pull (substr($op,0, strlen($op) -1));
-        $op = Symbol :: pull ("new");
+      if(is_symbol($op) and substr($op."", -1) == "." and $op."" != ".") {
+        $output[0] = symbol(substr($op,0, strlen($op) -1));
+        $op = symbol("new");
         array_unshift($output, $op);}
-      if($op instanceof Symbol and $op -> macro) {
+      if(is_symbol($op) and $op -> macro) {
         $op = Lisp :: eval1 ($op);
         array_shift ($output);
         $output = Lisp :: apply1 ($op, $output);
@@ -209,7 +183,7 @@ function compile ($expr, &$oob)
   }
   else
   {
-    if ($expr instanceof Symbol)
+    if (is_symbol($expr))
     {
       if ($expr."" == "true") return "true";
       if ($expr."" == "false") return "false";
@@ -218,7 +192,7 @@ function compile ($expr, &$oob)
       $p = count($oob["locals"]) - 1;
       if (is_array($oob["locals"][$p]) && in_array($expr,$oob["locals"][$p]))
       {
-        return compile(array(Symbol :: pull ("env"), $expr),$oob);
+        return compile(array(symbol("env"), $expr),$oob);
       }
 
       $expr=mangle($expr);
@@ -253,7 +227,7 @@ function compile_fn ($expr, &$oob)
   array_shift($expr);
   array_shift($expr);
   $syms = extract_symbols($expr);
-  array_unshift($expr,Symbol::pull("do"));
+  array_unshift($expr,symbol("do"));
   $body=compile($expr, $oob);
   $buf="";
   $buf3="";
@@ -286,7 +260,7 @@ function compile_fn ($expr, &$oob)
     $buf2.="\"".$s."\",";
   $buf2=mangle(substr($buf2,0,-1));
   array_pop($oob["locals"]);
-  return "call(".compile(Symbol::pull("closure"), $oob).",extend(".$ENVIRONMENT.",".$buf2."),array(".$buf."),\"".$name."\")";
+  return "call(".compile(symbol("closure"), $oob).",extend(".$ENVIRONMENT.",".$buf2."),array(".$buf."),\"".$name."\")";
   //foreach($syms as $s)
   //  $buf2.="\"".$s."\"=>".$ENVIRONMENT."[\"".$s."\"],";
   //$buf2=mangle(substr($buf2,0,-1));
@@ -301,7 +275,7 @@ function extract_symbols ($expr)
   $sub=array();
   foreach ($expr as $e)
   {
-    if ($e instanceof Symbol)
+    if (is_symbol($e))
       array_push($output, $e);
     if (is_array($e))
       $output = array_merge($output, extract_symbols($e));
@@ -325,7 +299,7 @@ function compile_function ($expr, &$oob)
 {
   array_shift($expr);
   $name=mangle(array_shift($expr)."");
-  array_unshift($expr,Symbol::pull("fn"));
+  array_unshift($expr,symbol("fn"));
   $oob["name"] = $name."";
   $oob["name_args"] = true;
   compile($expr, $oob);
@@ -359,7 +333,7 @@ function compile_call ($expr, &$oob)
   }
   $buf=",";
   foreach($expr as $e)
-    $buf.=compile(($e instanceof Symbol) ? array(Symbol::pull("env"),$e) : $e,$oob).",";
+    $buf.=compile(is_symbol($e) ? array(symbol("env"),$e) : $e,$oob).",";
   $buf=substr($buf,0,-1);
   $buf=($buf == ",") ? "" : $buf;
   if(function_exists($name."") or in_array($name."", $php_forms))
