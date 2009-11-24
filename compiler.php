@@ -200,7 +200,8 @@ function compile ($expr, &$oob)
       return "(\$GLOBALS[\"".$expr."\"] ? \$GLOBALS[\"".$expr."\"] : \"".$expr."\")";
     }
     if (is_string($expr))
-      return var_export($expr."", true);
+      return "\"".$expr."\"";
+    if ($expr == 0) return "0";
     if ($expr == null) return "null";
     return $expr."";
   }
@@ -244,12 +245,12 @@ function compile_fn ($expr, &$oob)
     $f.="function ".$name." (".$ENVIRONMENT.")\n{";
     foreach(array_unique(array_merge($syms,$args)) as $s)
       if (!in_array($s."", array("+")))
-        $f.="\$".mangle($s)."=".$ENVIRONMENT."[\"".mangle($s)."\"];";
+        $f.="\$".mangle($s)."=".$ENVIRONMENT."[\"".$s."\"];";
     $f.="\n  //\n";
   }
   else
   {
-    $f.="function ".$name." (".$buf3.")\n{\n";
+    $f.="function ".$name." (".mangle($buf3).")\n{\n";
   }
   $f.=$body;
   $f.="\n}";
@@ -377,7 +378,7 @@ function compile_macro ($expr, &$oob)
   array_shift($fn);
   $args = array_shift($fn);
   $fn = array(array(),$args,$nam);
-  $oob["macros"][$name.""] = $fn;
+  $oob["macros"][symbol_str($name)] = $fn;
 }
 
 function mangle ($name)
@@ -389,7 +390,7 @@ function mangle ($name)
     "-" => "__HYPHEN__",
     "=" => "__EQUAL__"
   );
-  $name=$name."";
+  $name=symbol_str($name);
   foreach($x as $k => $v)
     $name=str_replace($k,$v,$name);
   return $name;
@@ -405,8 +406,7 @@ $bootstrap = '
   if (function_exists($closure))
     return call_user_func_array($closure,$x);
   $args=array();
-  foreach($x as $key => $value)
-    $args[$closure[1][$key]] = $value;
+  foreach($x as $key => $value) $args[$closure[1][$key]] = $value;
   $closure[0] = ($closure[0] == null) ? array() : $closure[0];
   return call_user_func($closure[2], array_merge($closure[0],$args));
   ")
@@ -434,20 +434,6 @@ foreach($out_of_band as $f)
 $out_of_band["macros"]=array();
 $out_of_band["locals"]=array();
 $c="";
-
-$bootstrap = '
-(function first [x] (inline "$x[0]"))
-(function rest [x] (array_shift x) x)
-(function closure [e a n] (array e a n))
-(function = [a b] (inline "$a == $b"))
-(def cons (fn [i l]
-  ((fn [l] (array_unshift l i) l) (if (= nil l) (array) l))))
-  ';
-$bootstrap = Reader :: read (Reader :: tok ($bootstrap));
-foreach($bootstrap as $form)
-  $c.=compile($form, $out_of_band).";\n"; 
-
-
 
 foreach ($x as $r)
 {
