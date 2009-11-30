@@ -1,127 +1,6 @@
 <?php
 require_once('symbol.php');
-
-class Reader {
-  static $ignore = "\t\n\, ";
-  static function tok ($string) {
-    $buf=array ();
-    for ($i=0;$i<strlen ($string);$i++)
-      array_push ($buf, $string [$i]);
-    return $buf;}
-  static function read (& $stream) {
-    $output=array ();
-    while (sizeof ($stream) > 0)
-      if (strpbrk (Reader :: $ignore, $stream [0]))
-        array_shift ($stream);
-      else if ($stream [0] == ";")
-        for(;$stream [0] != "\n";array_shift ($stream));
-      else
-        array_push ($output, self :: next ($stream));
-    return $output;}
-  static function next (& $stream) {
-    if ($stream [0] == "\"") {
-      return self :: string ($stream);}
-    else if ($stream [0] == "'") {
-      array_shift ($stream);
-      return self :: quote ($stream);}
-    else if ($stream [0] == "~") {
-      array_shift($stream);
-      return self :: unquote ($stream);}
-    else if ($stream [0] == "(") {
-      return self :: list_ ($stream);}
-    else if ($stream [0] == "[") {
-      return self :: vector ($stream);}
-    else if ($stream[0] == "0" and $stream[1] == "x") {
-      array_shift($stream);
-      array_shift($stream);
-      $x = self :: hexnumber($stream);
-      return hexdec("0x".$x);}
-    else if (is_numeric ($stream[0])) {
-      return self :: number ($stream);}
-    else if (!strpbrk (Reader :: $ignore, $stream [0])) { 
-      return self :: symbol ($stream);}
-    else {
-      array_shift ($stream);}}
-  static function symbol (& $stream) {
-    $buf="";
-    while (sizeof ($stream) != 0 and !strpbrk(Reader :: $ignore, $stream [0])) {
-      $buf .= array_shift ($stream);
-    }
-    return ($buf == "null" or $buf == "nil") ? null : symbol($buf);
-  }
-  static function hexnumber (& $stream) {
-    $buf="";
-    while (sizeof ($stream) > 0 and
-      $stream[0] != " " and
-      in_array($stream[0], array("a","b","c","d","e","f")) or
-      is_numeric($stream[0])) {
-      $buf.=array_shift($stream);
-    }
-    return $buf;
-  }
-  static function number (& $stream) {
-    $buf="";
-    while (sizeof ($stream) != 0 and is_numeric ($stream [0])) 
-      $buf .= array_shift ($stream);
-    return intval ($buf);
-  }
-  static function list_ (& $stream) {
-    $buf=array (array_shift ($stream));
-    for ($i = 1; $i != 0; ) {
-      if ($stream [0] == ")") $i--;
-      else if ($stream [0] == "(") $i++;
-      array_push ($buf, array_shift ($stream));}
-    array_shift ($buf);
-    array_pop ($buf);
-    return self :: read ($buf);}
-  static function vector (& $stream) {
-    $buf=array (array_shift ($stream));
-    for ($i=1;$i!=0;) {
-      if ($stream [0] == "]") $i--;
-      else if ($stream [0] == "[") $i++;
-      array_push ($buf, array_shift ($stream));
-    }
-    array_shift ($buf);
-    array_pop ($buf);
-    return self :: read ($buf);
-  }
-  static function string (& $stream) {
-    array_shift ($stream);
-    $buf="";
-    while(sizeof ($stream) != 0 and $stream [0] != "\"") {
-      if ($stream [0] == "\\" and $stream [1] == "\"")
-        array_shift ($stream);
-      $buf .= array_shift ($stream);
-    }
-    array_shift ($stream);
-    return $buf;}
-  static function quote (& $stream) {
-    $tmp = self :: next ($stream);
-    return array (symbol("quote"), $tmp);}
-  static function unquote (& $stream) {
-    $tmp = self :: next ($stream);
-    return array (symbol("unquote"), $tmp);}
-  static function macro_expand($form) {
-    if (is_array ($form)) {
-      $output = array ();
-      foreach ($form as $part)
-        if (is_array ($part))
-          array_push ($output, self::macro_expand ($part));
-        else
-          array_push ($output,$part);
-      $op = $output [0];
-      if(is_symbol($op) and substr($op."", -1) == "." and $op."" != ".") {
-        $output[0] = symbol(substr($op,0, strlen($op) -1));
-        $op = symbol("new");
-        array_unshift($output, $op);}
-      if(is_symbol($op) and $op -> macro) {
-        $op = Lisp :: eval1 ($op);
-        array_shift ($output);
-        $output = Lisp :: apply1 ($op, $output);
-        $output = self :: macro_expand ($output);}
-      return $output;}
-    else
-      return $form;}}
+require_once('reader.php');
 
 $buf="";
 while(!feof(STDIN)){
@@ -174,6 +53,10 @@ function compile ($expr, &$oob)
         return compile_let($expr, $oob);
       case "recur":
         return compile_recur($expr, $oob);
+      case "set!":
+        return compile_set($expr, $oob);
+      case "ref":
+        return compile_ref($expr, $oob);
       case "-":
       case "*":
       case "/":
@@ -218,6 +101,12 @@ function compile_def ($expr, &$oob)
   return "\$".mangle($name)."=".$expr."";
 }
 
+function compile_set ($expr, &$oob)
+{
+  list($_, $L, $R) = $expr;
+  return compile(array(symbol("env"),$L),$oob)."=".compile($R,$oob);
+}
+
 function compile_fn ($expr, &$oob)
 {
   global $ENVIRONMENT;
@@ -260,6 +149,7 @@ function compile_fn ($expr, &$oob)
   {
     $f.="function ".$name." (".mangle($buf3).")\n{\n  do{";
   }
+  //$f.=$ENVIRONMENT."[\"".$RECUR_KEY."\"] = false;";
   $f.=$body;
   $f.="\n}";
   eval($f);
@@ -270,12 +160,6 @@ function compile_fn ($expr, &$oob)
   $buf2=mangle(substr($buf2,0,-1));
   array_pop($oob["locals"]);
   return "call(".compile(symbol("closure"), $oob).",extend(".$ENVIRONMENT.",".$buf2."),array(".$buf."),\"".$name."\")";
-  //foreach($syms as $s)
-  //  $buf2.="\"".$s."\"=>".$ENVIRONMENT."[\"".$s."\"],";
-  //$buf2=mangle(substr($buf2,0,-1));
-  //array_pop($oob["locals"]);
-  //return "call(".compile(Symbol::pull("closure"), $oob).",".$buf2."),array(".$buf."),\"".$name."\")";
-
 }
 
 function compile_recur ($expr, &$oob)
@@ -287,7 +171,7 @@ function compile_recur ($expr, &$oob)
   $m="";
   for($i=0;$i<sizeof($names);$i++)
     $m.="\"".$names[$i]."\"=>".compile($expr[$i],$oob).",";
-  $m.=$RECUR_KEY." => true,";
+  $m.="\"".$RECUR_KEY."\" => true,";
   $m="array_merge(".$ENVIRONMENT.",array(".substr($m,0,-1)."))";
   return $m;
 }
@@ -349,7 +233,8 @@ function compile_call ($expr, &$oob)
 {
   static $php_forms = array("print","array");
   $name=array_shift($expr);
-  if (array_key_exists($name."", $oob["macros"]))
+  $oob["macros"] = is_array($oob["macros"]) ? $oob["macros"] : array();
+  if (array_key_exists(symbol_str($name), $oob["macros"]))
   {
     array_unshift($expr,$oob["macros"][$name.""]);
     return compile(call_user_func_array("call",$expr), $oob); 
@@ -422,25 +307,6 @@ $ENVIRONMENT="\$E__";
 $RECUR_KEY=gensym();
 
 $bootstrap = '
-(« call "" "
-  $x = func_get_args();
-  $closure=first($x);
-  $x=rest($x);
-  $out=null;
-  if (function_exists($closure))
-  {
-    $out = call_user_func_array($closure,$x);
-  }
-  else
-  {
-    $args=array();
-    foreach($x as $key => $value) $args[$closure[1][$key]] = $value;
-    $closure[0] = ($closure[0] == null) ? array() : $closure[0];
-    $closure[0][\"thisfn\"] = $closure;
-    $out = call_user_func($closure[2], array_merge($closure[0],$args));
-  }
-  return $out;
-  ")
 (« extend "" "
   $x = func_get_args();
   $env = array_shift($x);
@@ -468,7 +334,9 @@ $c="";
 
 foreach ($x as $r)
 {
-  $c.=compile($r,$out_of_band).";\n";
+  $tmp=compile($r,$out_of_band);
+  $c.=$tmp;
+  $c.= ($tmp == "") ? "" : ";\n";
 }
 
 $out_of_band["locals"] = "";
@@ -476,9 +344,6 @@ $out_of_band["macros"] = "";
 $out_of_band=implode("\n",$out_of_band);
 
 echo "<?php\n";
-echo "/* Input\n";
-echo $buf;
-echo "*/\n\n";
 echo $ENVIRONMENT."=&\$GLOBALS;\n\n";
 echo $out_of_band."\n\n";
 echo $c."\n";
