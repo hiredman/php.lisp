@@ -9,11 +9,9 @@ while(!feof(STDIN)){
 $x = Reader :: tok($buf);
 $x = Reader :: read ($x);
 
-$FUNCTIONAL_TABLE=array();
-
 function gensym ()
 {
-  global $FUNCTIONAL_TABLE;
+  static $FUNCTIONAL_TABLE = array();
   $x=rand_str(5);
   for($x=rand_str(5);in_array($x,$FUNCTIONAL_TABLE);$x=rand_str()){}
   array_push($FUNCTIONAL_TABLE, $x);
@@ -29,7 +27,11 @@ function compile ($expr, &$oob)
     {
       case "def":
         return compile_def($expr,$oob);
+      case "define":
+        return compile_def($expr,$oob);
       case "fn":
+        return compile_fn($expr,$oob);
+      case "λ":
         return compile_fn($expr,$oob);
       case "do":
         return compile_do($expr,$oob);
@@ -80,9 +82,8 @@ function compile ($expr, &$oob)
         return compile(array(symbol("env"), $expr),$oob);
       }
 
-      $expr=mangle($expr);
-      //return "(function_exists(\"".$expr."\") ? \"".$expr."\" : \$GLOBALS[\"".$expr."\"])";
-      return "(\$GLOBALS[\"".$expr."\"] ? \$GLOBALS[\"".$expr."\"] : \"".$expr."\")";
+      //$expr=mangle($expr);
+      return "(".$ENVIRONMENT."[\"".symbol_str($expr)."\"] ? \$".mangle(symbol_str($expr))." : \$GLOBALS[\"".mangle(symbol_str($expr))."\"])";
     }
     if (is_string($expr))
       return "\"".$expr."\"";
@@ -149,17 +150,18 @@ function compile_fn ($expr, &$oob)
   {
     $f.="function ".$name." (".mangle($buf3).")\n{\n  do{";
   }
-  //$f.=$ENVIRONMENT."[\"".$RECUR_KEY."\"] = false;";
   $f.=$body;
   $f.="\n}";
+  //file_put_contents("php://stderr",$f."\n");
   eval($f);
   array_push($oob, $f);
   $buf2="";
   foreach($syms as $s)
-    $buf2.="\"".$s."\",";
-  $buf2=mangle(substr($buf2,0,-1));
+    if(! in_array($s,$args))
+      $buf2.="\"".$s."\"=>".$ENVIRONMENT."[\"".$s."\"],";
+  $buf2=substr($buf2,0,-1);
   array_pop($oob["locals"]);
-  return "call(".compile(symbol("closure"), $oob).",extend(".$ENVIRONMENT.",".$buf2."),array(".$buf."),\"".$name."\")";
+  return "array(array(".$buf2."),array(".$buf."),\"".$name."\")";
 }
 
 function compile_recur ($expr, &$oob)
@@ -221,11 +223,9 @@ function compile_inline ($expr, &$oob)
 function compile_do ($expr, &$oob)
 {
   array_shift($expr);
-  //$last = array_pop($expr);
   $buf="";
   foreach($expr as $e)
     $buf.="  ".compile($e,$oob).";\n";
-  //$buf.="  return ".compile($last, $oob).";";
   return $buf;
 }
 
@@ -295,6 +295,7 @@ function mangle ($name)
     "?" => "__QMARK__",
     "!" => "__BANG__",
     "-" => "__HYPHEN__",
+    "&" => "__AND__",
     "=" => "__EQUAL__"
   );
   $name=symbol_str($name);
@@ -305,28 +306,6 @@ function mangle ($name)
 
 $ENVIRONMENT="\$E__";
 $RECUR_KEY=gensym();
-
-$bootstrap = '
-(« extend "" "
-  $x = func_get_args();
-  $env = array_shift($x);
-  $env = ($env == null) ? array() : $env;
-  $output=array();
-  foreach ($x as $y)
-  {
-    if (array_key_exists($y,$env))
-      $output[$y]=$env[$y];
-  }
-  return $output;
-")
-';
-
-$out_of_band=array();
-$bootstrap = Reader :: read (Reader :: tok ($bootstrap));
-foreach($bootstrap as $form)
-  compile($form, $out_of_band); 
-foreach($out_of_band as $f)
-  eval($f);
 
 $out_of_band["macros"]=array();
 $out_of_band["locals"]=array();
